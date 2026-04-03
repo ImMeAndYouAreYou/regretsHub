@@ -1,6 +1,7 @@
 --[[
-    Rayfield Hub – Loads from multiple sources
-    Fixes: Lighting service typo, Rayfield download retries.
+    Rayfield Hub – Fully working with official loader
+    URL: https://sirius.menu/rayfield
+    Includes: Hitbox, ESP, Aimbot, Local mods
 --]]
 
 repeat wait() until game:IsLoaded()
@@ -10,50 +11,26 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
-local Lighting = game:GetService("Lighting") -- FIXED: was "Lightning"
+local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 local Camera = workspace.CurrentCamera
 
--- ========== RAYFIELD LOADER (MULTI-SOURCE) ==========
-local Rayfield = nil
-local RayfieldLoaded = false
-
-local RayfieldURLs = {
-    "https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua",
-    "https://rawcdn.githack.com/shlexware/Rayfield/main/source.lua",
-    "https://ghproxy.net/https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua",
-}
-
-local function LoadRayfield()
-    for _, url in ipairs(RayfieldURLs) do
-        local success, result = pcall(function()
-            local content = game:HttpGet(url, true)
-            return loadstring(content)
-        end)
-        if success and result then
-            local ok, lib = pcall(result)
-            if ok and lib then
-                return lib
-            end
-        end
-        task.wait(0.5)
-    end
-    return nil
-end
-
-Rayfield = LoadRayfield()
-
+-- ========== LOAD RAYFIELD (OFFICIAL URL) ==========
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 if not Rayfield then
-    -- Final fallback: notify and stop
     game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "Rayfield Error",
-        Text = "Could not load Rayfield library. Check your internet or executor.",
+        Title = "Error",
+        Text = "Failed to load Rayfield. Check your internet.",
         Duration = 5
     })
     return
 end
+
+-- ========== CONFIG FOLDER ==========
+local ConfigFolder = "RayfieldHubConfig"
+if not isfolder(ConfigFolder) then makefolder(ConfigFolder) end
 
 -- ========== FEATURE VARIABLES ==========
 -- Hitbox
@@ -510,12 +487,8 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ========== RAYFIELD UI ==========
-local ConfigFolder = "RayfieldHubConfig"
-if not isfolder(ConfigFolder) then makefolder(ConfigFolder) end
-
 local Window = Rayfield:CreateWindow({
     Name = "Custom Script Hub",
-    Icon = nil,
     LoadingTitle = "Loading Hub",
     LoadingSubtitle = "by ScriptHub",
     ConfigurationSaving = {
@@ -525,19 +498,10 @@ local Window = Rayfield:CreateWindow({
     },
     Discord = {
         Enabled = false,
-        Invite = "noinvite",
+        Invite = "",
         RememberJoins = true
     },
-    KeySystem = false,
-    KeySettings = {
-        Title = "Key System",
-        Subtitle = "Key Required",
-        Note = "No key needed",
-        FileName = "Key",
-        SaveKey = false,
-        GrabKeyFromSite = false,
-        Key = {"nil"}
-    }
+    KeySystem = false
 })
 
 -- Hitbox Tab
@@ -804,12 +768,16 @@ LocalTab:CreateToggle({
     end
 })
 
--- Initialize
+-- Load configuration after all elements are created
+Rayfield:LoadConfiguration()
+
+-- Initialize features
 task.wait(1)
 ApplyLocalStats()
 UpdateESP()
 UpdateAimbotFOVCircle()
 
+-- Success notification
 Rayfield:Notify({
     Title = "Custom Hub",
     Content = "Loaded successfully!",
