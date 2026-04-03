@@ -131,7 +131,8 @@ local function CreateUI()
             ScrollingFrame.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
         end)
 
-        if #tabs == 1 then btn.MouseButton1Click() end
+        -- FIXED: programmatically click the first tab (was btn.MouseButton1Click() which is wrong)
+        if #tabs == 1 then btn:Click() end
         return content
     end
 
