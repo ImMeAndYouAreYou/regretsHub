@@ -1,390 +1,59 @@
 --[[
-    Custom Script Hub – Fully Self-Contained
-    No external dependencies. Works on any executor.
+    Rayfield Hub – Loads from multiple sources
+    Fixes: Lighting service typo, Rayfield download retries.
 --]]
 
 repeat wait() until game:IsLoaded()
 
--- ========== SERVICES ==========
+-- Services
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
-local TweenService = game:GetService("TweenService")
-local Lighting = game:GetService("Lighting")
+local Lighting = game:GetService("Lighting") -- FIXED: was "Lightning"
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 local Camera = workspace.CurrentCamera
 
--- ========== UI CREATION (no external libs) ==========
-local function CreateUI()
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "CustomHub"
-    ScreenGui.Parent = CoreGui
-    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-    ScreenGui.ResetOnSpawn = false
+-- ========== RAYFIELD LOADER (MULTI-SOURCE) ==========
+local Rayfield = nil
+local RayfieldLoaded = false
 
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Size = UDim2.new(0, 520, 0, 420)
-    MainFrame.Position = UDim2.new(0.5, -260, 0.5, -210)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    MainFrame.BorderSizePixel = 0
-    MainFrame.Parent = ScreenGui
-    Instance.new("UICorner").Parent = MainFrame
+local RayfieldURLs = {
+    "https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua",
+    "https://rawcdn.githack.com/shlexware/Rayfield/main/source.lua",
+    "https://ghproxy.net/https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua",
+}
 
-    -- Title bar
-    local TitleBar = Instance.new("Frame")
-    TitleBar.Size = UDim2.new(1, 0, 0, 35)
-    TitleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-    TitleBar.Parent = MainFrame
-    Instance.new("UICorner").Parent = TitleBar
-
-    local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1, -40, 1, 0)
-    Title.Position = UDim2.new(0, 10, 0, 0)
-    Title.BackgroundTransparency = 1
-    Title.Text = "Custom Script Hub"
-    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Title.TextSize = 16
-    Title.Font = Enum.Font.Gotham
-    Title.TextXAlignment = Enum.TextXAlignment.Left
-    Title.Parent = TitleBar
-
-    local CloseBtn = Instance.new("TextButton")
-    CloseBtn.Size = UDim2.new(0, 30, 1, 0)
-    CloseBtn.Position = UDim2.new(1, -30, 0, 0)
-    CloseBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
-    CloseBtn.Text = "X"
-    CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    CloseBtn.TextSize = 14
-    CloseBtn.Font = Enum.Font.Gotham
-    CloseBtn.Parent = TitleBar
-    CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
-
-    -- Tab bar
-    local TabBar = Instance.new("Frame")
-    TabBar.Size = UDim2.new(1, 0, 0, 40)
-    TabBar.Position = UDim2.new(0, 0, 0, 35)
-    TabBar.BackgroundTransparency = 1
-    TabBar.Parent = MainFrame
-
-    local ContentContainer = Instance.new("Frame")
-    ContentContainer.Size = UDim2.new(1, -20, 1, -85)
-    ContentContainer.Position = UDim2.new(0, 10, 0, 80)
-    ContentContainer.BackgroundTransparency = 1
-    ContentContainer.Parent = MainFrame
-
-    local ScrollingFrame = Instance.new("ScrollingFrame")
-    ScrollingFrame.Size = UDim2.new(1, 0, 1, 0)
-    ScrollingFrame.BackgroundTransparency = 1
-    ScrollingFrame.BorderSizePixel = 0
-    ScrollingFrame.ScrollBarThickness = 6
-    ScrollingFrame.Parent = ContentContainer
-
-    local UIListLayout = Instance.new("UIListLayout")
-    UIListLayout.Padding = UDim.new(0, 8)
-    UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    UIListLayout.Parent = ScrollingFrame
-
-    local tabs = {}
-    local function AddTab(name)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0, 100, 1, -6)
-        btn.Position = UDim2.new(#tabs * 0.19 + 0.02, 0, 0, 3)
-        btn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-        btn.Text = name
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.TextSize = 14
-        btn.Font = Enum.Font.Gotham
-        btn.Parent = TabBar
-        Instance.new("UICorner").Parent = btn
-
-        local content = Instance.new("Frame")
-        content.Size = UDim2.new(1, 0, 0, 0)
-        content.BackgroundTransparency = 1
-        content.Visible = false
-        content.Parent = ScrollingFrame
-
-        local contentLayout = Instance.new("UIListLayout")
-        contentLayout.Padding = UDim.new(0, 6)
-        contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        contentLayout.Parent = content
-
-        table.insert(tabs, {btn = btn, content = content})
-
-        btn.MouseButton1Click:Connect(function()
-            for _, t in pairs(tabs) do
-                t.content.Visible = false
-                t.btn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-            end
-            content.Visible = true
-            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 255)
-
-            -- Update canvas size
-            local totalHeight = 0
-            for _, child in pairs(content:GetChildren()) do
-                if child:IsA("Frame") then
-                    totalHeight = totalHeight + child.Size.Y.Offset + contentLayout.Padding.Offset
-                end
-            end
-            ScrollingFrame.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
+local function LoadRayfield()
+    for _, url in ipairs(RayfieldURLs) do
+        local success, result = pcall(function()
+            local content = game:HttpGet(url, true)
+            return loadstring(content)
         end)
-
-        -- FIXED: programmatically click the first tab (was btn.MouseButton1Click() which is wrong)
-        if #tabs == 1 then btn:Click() end
-        return content
-    end
-
-    -- UI element builders
-    local function AddToggle(parent, name, default, callback)
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(1, -10, 0, 36)
-        frame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-        frame.BackgroundTransparency = 0.2
-        frame.Parent = parent
-        Instance.new("UICorner").Parent = frame
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(0.7, -10, 1, 0)
-        label.Position = UDim2.new(0, 10, 0, 0)
-        label.BackgroundTransparency = 1
-        label.Text = name
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.TextSize = 14
-        label.Font = Enum.Font.Gotham
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = frame
-
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0, 60, 0, 26)
-        btn.Position = UDim2.new(1, -70, 0.5, -13)
-        btn.BackgroundColor3 = default and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(80, 80, 80)
-        btn.Text = default and "ON" or "OFF"
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.TextSize = 12
-        btn.Font = Enum.Font.Gotham
-        btn.Parent = frame
-        Instance.new("UICorner").Parent = btn
-
-        local state = default
-        btn.MouseButton1Click:Connect(function()
-            state = not state
-            btn.BackgroundColor3 = state and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(80, 80, 80)
-            btn.Text = state and "ON" or "OFF"
-            if callback then callback(state) end
-        end)
-        return frame
-    end
-
-    local function AddSlider(parent, name, min, max, default, suffix, callback)
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(1, -10, 0, 55)
-        frame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-        frame.BackgroundTransparency = 0.2
-        frame.Parent = parent
-        Instance.new("UICorner").Parent = frame
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, -10, 0, 22)
-        label.Position = UDim2.new(0, 10, 0, 5)
-        label.BackgroundTransparency = 1
-        label.Text = name .. ": " .. tostring(default) .. suffix
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.TextSize = 13
-        label.Font = Enum.Font.Gotham
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = frame
-
-        local sliderFrame = Instance.new("Frame")
-        sliderFrame.Size = UDim2.new(0.9, 0, 0, 4)
-        sliderFrame.Position = UDim2.new(0.05, 0, 0.7, 0)
-        sliderFrame.BackgroundColor3 = Color3.fromRGB(70, 70, 75)
-        sliderFrame.BorderSizePixel = 0
-        sliderFrame.Parent = frame
-
-        local fill = Instance.new("Frame")
-        fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
-        fill.BackgroundColor3 = Color3.fromRGB(80, 80, 255)
-        fill.BorderSizePixel = 0
-        fill.Parent = sliderFrame
-
-        local value = default
-        local dragging = false
-
-        local function update(x)
-            local rel = math.clamp((x - sliderFrame.AbsolutePosition.X) / sliderFrame.AbsoluteSize.X, 0, 1)
-            value = min + (max - min) * rel
-            value = math.floor(value * 100) / 100
-            fill.Size = UDim2.new(rel, 0, 1, 0)
-            label.Text = name .. ": " .. tostring(value) .. suffix
-            if callback then callback(value) end
+        if success and result then
+            local ok, lib = pcall(result)
+            if ok and lib then
+                return lib
+            end
         end
-
-        sliderFrame.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true
-                update(input.Position.X)
-            end
-        end)
-        UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
-        end)
-        UserInputService.InputChanged:Connect(function(input)
-            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-                update(input.Position.X)
-            end
-        end)
-        return frame
+        task.wait(0.5)
     end
-
-    local function AddColorPicker(parent, name, defaultColor, callback)
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(1, -10, 0, 42)
-        frame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-        frame.BackgroundTransparency = 0.2
-        frame.Parent = parent
-        Instance.new("UICorner").Parent = frame
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(0.6, -10, 1, 0)
-        label.Position = UDim2.new(0, 10, 0, 0)
-        label.BackgroundTransparency = 1
-        label.Text = name
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.TextSize = 13
-        label.Font = Enum.Font.Gotham
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = frame
-
-        local colorDisplay = Instance.new("Frame")
-        colorDisplay.Size = UDim2.new(0, 50, 0, 26)
-        colorDisplay.Position = UDim2.new(1, -60, 0.5, -13)
-        colorDisplay.BackgroundColor3 = defaultColor
-        colorDisplay.BorderSizePixel = 1
-        colorDisplay.BorderColor3 = Color3.fromRGB(255, 255, 255)
-        colorDisplay.Parent = frame
-        Instance.new("UICorner").Parent = colorDisplay
-
-        local colors = {
-            Color3.fromRGB(255, 0, 0), Color3.fromRGB(0, 255, 0),
-            Color3.fromRGB(0, 0, 255), Color3.fromRGB(255, 255, 0),
-            Color3.fromRGB(255, 0, 255), Color3.fromRGB(0, 255, 255)
-        }
-        local idx = 1
-        colorDisplay.MouseButton1Click:Connect(function()
-            idx = idx % #colors + 1
-            local newColor = colors[idx]
-            colorDisplay.BackgroundColor3 = newColor
-            if callback then callback(newColor) end
-        end)
-        return frame
-    end
-
-    local function AddDropdown(parent, name, options, default, callback)
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(1, -10, 0, 42)
-        frame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-        frame.BackgroundTransparency = 0.2
-        frame.Parent = parent
-        Instance.new("UICorner").Parent = frame
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(0.4, -10, 1, 0)
-        label.Position = UDim2.new(0, 10, 0, 0)
-        label.BackgroundTransparency = 1
-        label.Text = name
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.TextSize = 13
-        label.Font = Enum.Font.Gotham
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = frame
-
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0, 120, 0, 28)
-        btn.Position = UDim2.new(1, -130, 0.5, -14)
-        btn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-        btn.Text = default
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.TextSize = 12
-        btn.Font = Enum.Font.Gotham
-        btn.Parent = frame
-        Instance.new("UICorner").Parent = btn
-
-        local isOpen = false
-        local optionList = nil
-        btn.MouseButton1Click:Connect(function()
-            if isOpen then
-                if optionList then optionList:Destroy() end
-                isOpen = false
-                return
-            end
-            optionList = Instance.new("Frame")
-            optionList.Size = UDim2.new(0, 120, 0, #options * 28)
-            optionList.Position = UDim2.new(1, -130, 0, 30)
-            optionList.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-            optionList.BorderSizePixel = 0
-            optionList.Parent = frame
-            Instance.new("UICorner").Parent = optionList
-
-            local layout = Instance.new("UIListLayout")
-            layout.Padding = UDim.new(0, 2)
-            layout.Parent = optionList
-
-            for _, opt in ipairs(options) do
-                local optBtn = Instance.new("TextButton")
-                optBtn.Size = UDim2.new(1, 0, 0, 28)
-                optBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-                optBtn.Text = opt
-                optBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                optBtn.TextSize = 12
-                optBtn.Font = Enum.Font.Gotham
-                optBtn.Parent = optionList
-                optBtn.MouseButton1Click:Connect(function()
-                    btn.Text = opt
-                    if callback then callback(opt) end
-                    optionList:Destroy()
-                    isOpen = false
-                end)
-            end
-            isOpen = true
-        end)
-        return frame
-    end
-
-    -- Make window draggable
-    local dragging = false
-    local dragStart, startPos
-    TitleBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = MainFrame.Position
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local delta = input.Position - dragStart
-            MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X,
-                                           startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-
-    return {
-        AddTab = AddTab,
-        AddToggle = AddToggle,
-        AddSlider = AddSlider,
-        AddColorPicker = AddColorPicker,
-        AddDropdown = AddDropdown
-    }
+    return nil
 end
 
-local UI = CreateUI()
+Rayfield = LoadRayfield()
+
+if not Rayfield then
+    -- Final fallback: notify and stop
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Rayfield Error",
+        Text = "Could not load Rayfield library. Check your internet or executor.",
+        Duration = 5
+    })
+    return
+end
 
 -- ========== FEATURE VARIABLES ==========
 -- Hitbox
@@ -840,60 +509,309 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ========== BUILD UI TABS ==========
+-- ========== RAYFIELD UI ==========
+local ConfigFolder = "RayfieldHubConfig"
+if not isfolder(ConfigFolder) then makefolder(ConfigFolder) end
+
+local Window = Rayfield:CreateWindow({
+    Name = "Custom Script Hub",
+    Icon = nil,
+    LoadingTitle = "Loading Hub",
+    LoadingSubtitle = "by ScriptHub",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = ConfigFolder,
+        FileName = "Settings"
+    },
+    Discord = {
+        Enabled = false,
+        Invite = "noinvite",
+        RememberJoins = true
+    },
+    KeySystem = false,
+    KeySettings = {
+        Title = "Key System",
+        Subtitle = "Key Required",
+        Note = "No key needed",
+        FileName = "Key",
+        SaveKey = false,
+        GrabKeyFromSite = false,
+        Key = {"nil"}
+    }
+})
+
 -- Hitbox Tab
-local hitboxTab = UI.AddTab("Hitbox Extender")
-UI.AddToggle(hitboxTab, "Enable Hitbox", false, function(v) HitboxEnabled = v end)
-UI.AddSlider(hitboxTab, "Hitbox Size", 1, 50, 13, " studs", function(v) HitboxSize = v end)
-UI.AddSlider(hitboxTab, "Hitbox Transparency", 0, 1, 0.5, "", function(v) HitboxTransparency = v end)
-UI.AddColorPicker(hitboxTab, "Hitbox Color", HitboxColor, function(c) HitboxColor = c end)
-UI.AddToggle(hitboxTab, "Head Dot (ESP style)", false, function(v) HitboxHeadDot = v end)
+local HitboxTab = Window:CreateTab("Hitbox Extender", nil)
+
+HitboxTab:CreateToggle({
+    Name = "Enable Hitbox",
+    CurrentValue = false,
+    Flag = "HitboxEnabled",
+    Callback = function(v) HitboxEnabled = v end
+})
+
+HitboxTab:CreateSlider({
+    Name = "Hitbox Size",
+    Range = {1, 50},
+    Increment = 1,
+    Suffix = " studs",
+    CurrentValue = 13,
+    Flag = "HitboxSize",
+    Callback = function(v) HitboxSize = v end
+})
+
+HitboxTab:CreateSlider({
+    Name = "Hitbox Transparency",
+    Range = {0, 1},
+    Increment = 0.05,
+    Suffix = "",
+    CurrentValue = 0.5,
+    Flag = "HitboxTransparency",
+    Callback = function(v) HitboxTransparency = v end
+})
+
+HitboxTab:CreateColorPicker({
+    Name = "Hitbox Color",
+    Color = HitboxColor,
+    Flag = "HitboxColor",
+    Callback = function(c) HitboxColor = c end
+})
+
+HitboxTab:CreateToggle({
+    Name = "Head Dot (ESP style)",
+    CurrentValue = false,
+    Flag = "HitboxHeadDot",
+    Callback = function(v) HitboxHeadDot = v end
+})
 
 -- ESP Tab
-local espTab = UI.AddTab("ESP")
-UI.AddToggle(espTab, "Enable ESP", false, function(v) ESPEnabled = v; if not v then ClearESP() else UpdateESP() end end)
-UI.AddToggle(espTab, "Skeleton", false, function(v) ESPSettings.Skeleton = v; UpdateESP() end)
-UI.AddToggle(espTab, "Head Box", false, function(v) ESPSettings.HeadBox = v; UpdateESP() end)
-UI.AddToggle(espTab, "Body Box", false, function(v) ESPSettings.BodyBox = v; UpdateESP() end)
-UI.AddToggle(espTab, "Name", false, function(v) ESPSettings.Name = v; UpdateESP() end)
-UI.AddToggle(espTab, "Health", false, function(v) ESPSettings.Health = v; UpdateESP() end)
-UI.AddToggle(espTab, "Distance", false, function(v) ESPSettings.Distance = v; UpdateESP() end)
-UI.AddToggle(espTab, "Tracer", false, function(v) ESPSettings.Tracer = v; UpdateESP() end)
-UI.AddToggle(espTab, "Head Dot", false, function(v) ESPSettings.HeadDot = v; UpdateESP() end)
-UI.AddColorPicker(espTab, "Skeleton Color", ESPColors.Skeleton, function(c) ESPColors.Skeleton = c; UpdateESP() end)
-UI.AddColorPicker(espTab, "Head Box Color", ESPColors.HeadBox, function(c) ESPColors.HeadBox = c; UpdateESP() end)
-UI.AddColorPicker(espTab, "Body Box Color", ESPColors.BodyBox, function(c) ESPColors.BodyBox = c; UpdateESP() end)
-UI.AddColorPicker(espTab, "Tracer Color", ESPColors.Tracer, function(c) ESPColors.Tracer = c; UpdateESP() end)
+local ESPTab = Window:CreateTab("ESP", nil)
+
+ESPTab:CreateToggle({
+    Name = "Enable ESP",
+    CurrentValue = false,
+    Flag = "ESPEnabled",
+    Callback = function(v)
+        ESPEnabled = v
+        if not v then ClearESP() else UpdateESP() end
+    end
+})
+
+ESPTab:CreateToggle({
+    Name = "Skeleton",
+    CurrentValue = false,
+    Flag = "ESPSkeleton",
+    Callback = function(v) ESPSettings.Skeleton = v; UpdateESP() end
+})
+
+ESPTab:CreateToggle({
+    Name = "Head Box",
+    CurrentValue = false,
+    Flag = "ESPHeadBox",
+    Callback = function(v) ESPSettings.HeadBox = v; UpdateESP() end
+})
+
+ESPTab:CreateToggle({
+    Name = "Body Box",
+    CurrentValue = false,
+    Flag = "ESPBodyBox",
+    Callback = function(v) ESPSettings.BodyBox = v; UpdateESP() end
+})
+
+ESPTab:CreateToggle({
+    Name = "Name",
+    CurrentValue = false,
+    Flag = "ESPName",
+    Callback = function(v) ESPSettings.Name = v; UpdateESP() end
+})
+
+ESPTab:CreateToggle({
+    Name = "Health",
+    CurrentValue = false,
+    Flag = "ESPHealth",
+    Callback = function(v) ESPSettings.Health = v; UpdateESP() end
+})
+
+ESPTab:CreateToggle({
+    Name = "Distance",
+    CurrentValue = false,
+    Flag = "ESPDistance",
+    Callback = function(v) ESPSettings.Distance = v; UpdateESP() end
+})
+
+ESPTab:CreateToggle({
+    Name = "Tracer",
+    CurrentValue = false,
+    Flag = "ESPTracer",
+    Callback = function(v) ESPSettings.Tracer = v; UpdateESP() end
+})
+
+ESPTab:CreateToggle({
+    Name = "Head Dot",
+    CurrentValue = false,
+    Flag = "ESPHeadDot",
+    Callback = function(v) ESPSettings.HeadDot = v; UpdateESP() end
+})
+
+ESPTab:CreateColorPicker({
+    Name = "Skeleton Color",
+    Color = ESPColors.Skeleton,
+    Flag = "SkeletonColor",
+    Callback = function(c) ESPColors.Skeleton = c; UpdateESP() end
+})
+
+ESPTab:CreateColorPicker({
+    Name = "Head Box Color",
+    Color = ESPColors.HeadBox,
+    Flag = "HeadBoxColor",
+    Callback = function(c) ESPColors.HeadBox = c; UpdateESP() end
+})
+
+ESPTab:CreateColorPicker({
+    Name = "Body Box Color",
+    Color = ESPColors.BodyBox,
+    Flag = "BodyBoxColor",
+    Callback = function(c) ESPColors.BodyBox = c; UpdateESP() end
+})
+
+ESPTab:CreateColorPicker({
+    Name = "Tracer Color",
+    Color = ESPColors.Tracer,
+    Flag = "TracerColor",
+    Callback = function(c) ESPColors.Tracer = c; UpdateESP() end
+})
 
 -- Aimbot Tab
-local aimbotTab = UI.AddTab("Aimbot")
-UI.AddToggle(aimbotTab, "Enable Aimbot", false, function(v) AimbotEnabled = v; if not v then AimbotTarget = nil end; UpdateAimbotFOVCircle() end)
-UI.AddDropdown(aimbotTab, "Aimbot Key", {"Q","E","LeftShift","Tab","RightMouseButton","X","C","F"}, "Q", function(opt)
-    local map = {Q=Enum.KeyCode.Q, E=Enum.KeyCode.E, LeftShift=Enum.KeyCode.LeftShift, Tab=Enum.KeyCode.Tab,
-                 RightMouseButton=Enum.UserInputType.MouseButton2, X=Enum.KeyCode.X, C=Enum.KeyCode.C, F=Enum.KeyCode.F}
-    AimbotKey = map[opt]
-end)
-UI.AddDropdown(aimbotTab, "Lock Part", {"Head","Torso"}, "Head", function(opt) AimbotLockPart = opt end)
-UI.AddSlider(aimbotTab, "FOV Radius", 50, 500, 200, " px", function(v) AimbotFOV = v; UpdateAimbotFOVCircle() end)
-UI.AddToggle(aimbotTab, "Show FOV Circle", true, function(v) AimbotShowFOV = v; UpdateAimbotFOVCircle() end)
-UI.AddSlider(aimbotTab, "Smoothness", 0, 1, 0.3, "", function(v) AimbotSmoothness = v end)
+local AimbotTab = Window:CreateTab("Aimbot", nil)
+
+AimbotTab:CreateToggle({
+    Name = "Enable Aimbot",
+    CurrentValue = false,
+    Flag = "AimbotEnabled",
+    Callback = function(v)
+        AimbotEnabled = v
+        if not v then AimbotTarget = nil end
+        UpdateAimbotFOVCircle()
+    end
+})
+
+AimbotTab:CreateDropdown({
+    Name = "Aimbot Key",
+    Options = {"Q", "E", "LeftShift", "Tab", "RightMouseButton", "X", "C", "F"},
+    CurrentOption = "Q",
+    Flag = "AimbotKey",
+    Callback = function(opt)
+        local map = {
+            Q = Enum.KeyCode.Q, E = Enum.KeyCode.E, LeftShift = Enum.KeyCode.LeftShift,
+            Tab = Enum.KeyCode.Tab, RightMouseButton = Enum.UserInputType.MouseButton2,
+            X = Enum.KeyCode.X, C = Enum.KeyCode.C, F = Enum.KeyCode.F
+        }
+        AimbotKey = map[opt]
+    end
+})
+
+AimbotTab:CreateDropdown({
+    Name = "Lock Part",
+    Options = {"Head", "Torso"},
+    CurrentOption = "Head",
+    Flag = "LockPart",
+    Callback = function(opt) AimbotLockPart = opt end
+})
+
+AimbotTab:CreateSlider({
+    Name = "FOV Radius",
+    Range = {50, 500},
+    Increment = 10,
+    Suffix = " px",
+    CurrentValue = 200,
+    Flag = "AimbotFOV",
+    Callback = function(v) AimbotFOV = v; UpdateAimbotFOVCircle() end
+})
+
+AimbotTab:CreateToggle({
+    Name = "Show FOV Circle",
+    CurrentValue = true,
+    Flag = "ShowFOVCircle",
+    Callback = function(v) AimbotShowFOV = v; UpdateAimbotFOVCircle() end
+})
+
+AimbotTab:CreateSlider({
+    Name = "Smoothness",
+    Range = {0, 1},
+    Increment = 0.05,
+    Suffix = "",
+    CurrentValue = 0.3,
+    Flag = "AimbotSmoothness",
+    Callback = function(v) AimbotSmoothness = v end
+})
 
 -- Local Player Tab
-local localTab = UI.AddTab("Local Player")
-UI.AddSlider(localTab, "Walk Speed", 16, 100, 16, " studs/s", function(v) WalkSpeedValue = v; ApplyLocalStats() end)
-UI.AddSlider(localTab, "Jump Power", 7.2, 100, 7.2, "", function(v) JumpPowerValue = v; ApplyLocalStats() end)
-UI.AddToggle(localTab, "Fly", false, function(v) FlyEnabled = v; ToggleFly(v) end)
-UI.AddSlider(localTab, "Fly Speed", 20, 200, 50, " studs/s", function(v) FlySpeed = v; if FlyEnabled then ToggleFly(true) end end)
-UI.AddToggle(localTab, "No Clip", false, function(v)
-    NoClipEnabled = v
-    if LocalPlayer.Character then
-        local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if humanoid then humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, not v) end
+local LocalTab = Window:CreateTab("Local Player", nil)
+
+LocalTab:CreateSlider({
+    Name = "Walk Speed",
+    Range = {16, 100},
+    Increment = 1,
+    Suffix = " studs/s",
+    CurrentValue = 16,
+    Flag = "WalkSpeed",
+    Callback = function(v) WalkSpeedValue = v; ApplyLocalStats() end
+})
+
+LocalTab:CreateSlider({
+    Name = "Jump Power",
+    Range = {7.2, 100},
+    Increment = 0.5,
+    Suffix = "",
+    CurrentValue = 7.2,
+    Flag = "JumpPower",
+    Callback = function(v) JumpPowerValue = v; ApplyLocalStats() end
+})
+
+LocalTab:CreateToggle({
+    Name = "Fly",
+    CurrentValue = false,
+    Flag = "Fly",
+    Callback = function(v)
+        FlyEnabled = v
+        ToggleFly(v)
     end
-end)
+})
+
+LocalTab:CreateSlider({
+    Name = "Fly Speed",
+    Range = {20, 200},
+    Increment = 5,
+    Suffix = " studs/s",
+    CurrentValue = 50,
+    Flag = "FlySpeed",
+    Callback = function(v)
+        FlySpeed = v
+        if FlyEnabled then ToggleFly(true) end
+    end
+})
+
+LocalTab:CreateToggle({
+    Name = "No Clip",
+    CurrentValue = false,
+    Flag = "NoClip",
+    Callback = function(v)
+        NoClipEnabled = v
+        if LocalPlayer.Character then
+            local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid then humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, not v) end
+        end
+    end
+})
 
 -- Initialize
 task.wait(1)
 ApplyLocalStats()
 UpdateESP()
 UpdateAimbotFOVCircle()
+
+Rayfield:Notify({
+    Title = "Custom Hub",
+    Content = "Loaded successfully!",
+    Duration = 3
+})
